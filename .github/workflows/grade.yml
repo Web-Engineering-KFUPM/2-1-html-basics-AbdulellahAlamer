@@ -21,7 +21,8 @@ jobs:
       - name: Run autograder
         run: node grade.cjs
 
-      # ✅ ADD THIS (does NOT change your summary step)
+      # ✅ Builds artifacts/grade.json for the collection script
+      # Fixes your CSV header: student,score,max_score
       - name: Build grade.json (obtained/total) for CSV collection
         shell: bash
         run: |
@@ -39,7 +40,7 @@ jobs:
           path = "artifacts/grade.csv"
           with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            if reader.fieldnames is None:
+            if not reader.fieldnames:
               print("ERROR: grade.csv missing header row", file=sys.stderr)
               sys.exit(1)
 
@@ -51,11 +52,12 @@ jobs:
                   return reader.fieldnames[fields_lower.index(c)]
               return None
 
-            obtained_col = find_col(["obtained", "score", "earned", "points"])
-            total_col    = find_col(["total", "possible", "max_points", "max", "out_of"])
+            # ✅ Your file uses: score, max_score
+            obtained_col = find_col(["score", "obtained", "earned", "points"])
+            total_col    = find_col(["max_score", "total", "possible", "max_points", "max", "out_of"])
 
             if not obtained_col or not total_col:
-              print("ERROR: Could not find obtained/total columns in grade.csv header.", file=sys.stderr)
+              print("ERROR: Could not find score/max_score columns in grade.csv header.", file=sys.stderr)
               print("Header:", reader.fieldnames, file=sys.stderr)
               sys.exit(2)
 
@@ -66,14 +68,29 @@ jobs:
               x = (x or "").strip()
               if x == "":
                 return 0.0
+              # supports values like "8/10" if that ever happens
+              if "/" in x:
+                a, b = x.split("/", 1)
+                try:
+                  return float(a.strip()), float(b.strip())
+                except:
+                  return 0.0, 0.0
               try:
                 return float(x)
               except:
                 return 0.0
 
             for row in reader:
-              obtained += to_num(row.get(obtained_col, ""))
-              total += to_num(row.get(total_col, ""))
+              o = row.get(obtained_col, "")
+              t = row.get(total_col, "")
+
+              if isinstance(o, str) and "/" in o and (t is None or str(t).strip() == ""):
+                a, b = to_num(o)
+                obtained += a
+                total += b
+              else:
+                obtained += float(to_num(o))
+                total += float(to_num(t))
 
             def norm(n):
               return int(n) if abs(n - int(n)) < 1e-9 else n
@@ -86,12 +103,6 @@ jobs:
           PY
 
       # ✅ KEEP YOUR EXISTING "DISPLAY SUMMARY" STEP HERE AS-IS
-      # (Do not change it. Just leave it where it already is in your workflow.)
-      #
-      # Example (yours may differ):
-      # - name: Write summary
-      #   run: |
-      #     echo "..." >> $GITHUB_STEP_SUMMARY
 
       - name: Upload grading artifacts
         uses: actions/upload-artifact@v4
